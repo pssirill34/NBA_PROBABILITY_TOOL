@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>NBA Context Engine v3.0</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <style>
+        :root { --bg: #121212; --card: #1e1e1e; --accent: #00d2be; --text: #eee; --border: #333; --red: #ff5252; --green: #4caf50; }
+        body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', Roboto, sans-serif; padding: 20px; margin: 0; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        
+        /* Header */
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 15px; }
+        h1 { color: var(--accent); margin: 0; font-size: 1.5rem; letter-spacing: 1px; }
+        input[type="file"] { color: #888; font-size: 0.9rem; }
+
+        /* Controls */
+        .controls { background: var(--card); padding: 20px; border-radius: 8px; display: flex; gap: 15px; flex-wrap: wrap; border: 1px solid var(--border); align-items: flex-end; margin-bottom: 20px; }
+        .input-group { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 120px; }
+        label { font-size: 0.7rem; color: #aaa; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; }
+        select, input { background: #2a2a2a; color: #fff; border: 1px solid #444; padding: 10px; border-radius: 4px; font-size: 0.95rem; width: 100%; box-sizing: border-box; }
+        select:focus, input:focus { border-color: var(--accent); outline: none; }
+        button { background: var(--accent); color: #000; border: none; padding: 10px 25px; font-weight: bold; border-radius: 4px; cursor: pointer; transition: 0.2s; height: 38px; width: 100%; }
+        button:hover { filter: brightness(1.1); }
+
+        /* Dashboard Grid */
+        .stats-container { display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; margin-bottom: 20px; }
+        .stat-card { background: var(--card); padding: 15px; border-radius: 8px; text-align: center; border-top: 3px solid #444; }
+        .stat-card h4 { margin: 0 0 5px 0; font-size: 0.7rem; color: #aaa; text-transform: uppercase; }
+        .stat-value { font-size: 1.8rem; font-weight: 800; color: #fff; }
+        .stat-sub { font-size: 0.75rem; color: #666; margin-top: 4px; }
+        
+        /* Specific Card Colors */
+        .highlight { border-top-color: var(--accent); }
+        .context-card { border-top-color: #e040fb; }
+        .matchup-card { border-top-color: #2962ff; }
+
+        /* Charts & Logs */
+        .split-view { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; height: 450px; }
+        .panel { background: var(--card); padding: 15px; border-radius: 8px; border: 1px solid var(--border); display: flex; flex-direction: column; }
+        
+        /* Table Styles */
+        .table-wrapper { flex: 1; overflow-y: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        th { text-align: left; color: #888; padding: 8px; border-bottom: 1px solid #444; position: sticky; top: 0; background: var(--card); z-index: 10; }
+        td { padding: 8px; border-bottom: 1px solid #333; }
+        .hit { color: var(--green); font-weight: bold; }
+        .miss { color: var(--red); font-weight: bold; }
+        .loc-tag { padding: 2px 6px; border-radius: 4px; font-size: 0.7em; background: #333; color: #ccc; }
+        
+        @media (max-width: 900px) { .split-view { grid-template-columns: 1fr; height: auto; } .panel { min-height: 350px; } .stats-container { grid-template-columns: 1fr 1fr; } }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <h1>🏀 NBA CONTEXT ENGINE v3</h1>
+        <div>
+            <label style="margin-right: 10px; color: #888;">Load 'nba_game_logs_2024_25.csv':</label>
+            <input type="file" id="csvInput" accept=".csv">
+        </div>
+    </div>
+
+    <div id="app" style="display:none;">
+        
+        <div class="controls">
+            <div class="input-group">
+                <label>Player</label>
+                <select id="playerSelect"></select>
+            </div>
+            <div class="input-group">
+                <label>Stat</label>
+                <select id="statSelect">
+                    <option value="PRA">PRA (Pts+Reb+Ast)</option>
+                    <option value="PTS">Points</option>
+                    <option value="REB">Rebounds</option>
+                    <option value="AST">Assists</option>
+                    <option value="Stocks">Stocks (Blk+Stl)</option>
+                    <option value="Usage">Usage %</option>
+                </select>
+            </div>
+            <div class="input-group" style="flex: 0.5;">
+                <label>Line</label>
+                <input type="number" id="lineInput" value="20.5" step="0.5">
+            </div>
+            <div class="input-group">
+                <label>Next Location</label>
+                <select id="locSelect">
+                    <option value="Home">🏠 Home</option>
+                    <option value="Away">✈️ Away</option>
+                </select>
+            </div>
+            <div class="input-group">
+                <label>Next Opponent</label>
+                <select id="oppSelect"></select>
+            </div>
+            <button onclick="runAnalysis()">UPDATE</button>
+        </div>
+
+        <div class="stats-container">
+            <div class="stat-card highlight">
+                <h4>Season Hit Rate</h4>
+                <div class="stat-value" id="seasonRate">-</div>
+                <div class="stat-sub" id="seasonAvg">Avg: -</div>
+            </div>
+            <div class="stat-card">
+                <h4>L10 Form</h4>
+                <div class="stat-value" id="l10Rate">-</div>
+                <div class="stat-sub" id="l10Avg">Avg: -</div>
+            </div>
+            <div class="stat-card highlight">
+                <h4 id="locLabel">L10 @ HOME</h4>
+                <div class="stat-value" id="locRate">-</div>
+                <div class="stat-sub" id="locAvg">Avg: -</div>
+            </div>
+            <div class="stat-card matchup-card">
+                <h4 id="oppLabel">VS OPPONENT</h4>
+                <div class="stat-value" id="oppRate">-</div>
+                <div class="stat-sub" id="oppCount">History</div>
+            </div>
+            <div class="stat-card context-card">
+                <h4 id="comboLabel">EXACT SPOT</h4>
+                <div class="stat-value" id="comboRate">-</div>
+                <div class="stat-sub" id="comboCount">Loc + Opp</div>
+            </div>
+        </div>
+
+        <div class="split-view">
+            <div class="panel">
+                <div style="height: 100%; width: 100%; position: relative;">
+                    <canvas id="trendChart"></canvas>
+                </div>
+            </div>
+            <div class="panel">
+                <div class="table-wrapper">
+                    <table id="logTable">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Opponent</th>
+                                <th>Loc</th>
+                                <th>Min</th>
+                                <th>Stat</th>
+                                <th>Res</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+    let rawData = [];
+    let chartInstance = null;
+
+    // ID -> Team Name Map
+    const NBA_TEAMS = {
+        1: "ATL", 2: "BOS", 3: "BKN", 4: "CHA", 5: "CHI", 6: "CLE", 7: "DAL", 8: "DEN", 9: "DET", 10: "GSW",
+        11: "HOU", 12: "IND", 13: "LAC", 14: "LAL", 15: "MEM", 16: "MIA", 17: "MIL", 18: "MIN", 19: "NOP", 20: "NYK",
+        21: "OKC", 22: "ORL", 23: "PHI", 24: "PHX", 25: "POR", 26: "SAC", 27: "SAS", 28: "TOR", 29: "UTA", 30: "WAS"
+    };
+
+    // 1. File Loader
+    document.getElementById('csvInput').addEventListener('change', (e) => {
+        Papa.parse(e.target.files[0], {
+            header: true,
+            dynamicTyping: true,
+            skipEmptyLines: true,
+            complete: (res) => {
+                rawData = res.data;
+                initApp();
+            }
+        });
+    });
+
+    function initApp() {
+        document.getElementById('app').style.display = 'block';
+
+        // Populate Players
+        const players = [...new Set(rawData.map(r => r.Player).filter(Boolean))].sort();
+        const pSel = document.getElementById('playerSelect');
+        pSel.innerHTML = "";
+        players.forEach(p => pSel.add(new Option(p, p)));
+
+        // Populate Opponents
+        const oSel = document.getElementById('oppSelect');
+        oSel.innerHTML = '<option value="ALL">Any Opponent</option>';
+        const oppIds = [...new Set(rawData.map(r => r.Opp_ID).filter(Boolean))].sort((a,b) => a-b);
+        
+        oppIds.forEach(id => {
+            const name = NBA_TEAMS[id] || `ID:${id}`;
+            oSel.add(new Option(name, id));
+        });
+
+        // Initial Run
+        if(players.length > 0) runAnalysis();
+    }
+
+    // 2. Stats Engine
+    function getHitRate(logs, stat, line) {
+        if (!logs.length) return { rate: "N/A", avg: "-", count: 0 };
+        const hits = logs.filter(r => (r[stat]||0) > line).length;
+        const avg = logs.reduce((a,b) => a + (b[stat]||0), 0) / logs.length;
+        return {
+            rate: Math.round((hits / logs.length) * 100) + "%",
+            avg: avg.toFixed(1),
+            count: logs.length
+        };
+    }
+
+    function runAnalysis() {
+        const player = document.getElementById('playerSelect').value;
+        const stat = document.getElementById('statSelect').value;
+        const line = parseFloat(document.getElementById('lineInput').value);
+        const loc = document.getElementById('locSelect').value; // "Home" or "Away"
+        const oppId = document.getElementById('oppSelect').value;
+        const oppName = oppId === "ALL" ? "Opponent" : (NBA_TEAMS[oppId] || oppId);
+
+        // Filter Logs (Player + Date Check)
+        let logs = rawData.filter(r => r.Player === player && r.Date);
+        // Sort Chronologically (Oldest -> Newest)
+        logs.sort((a,b) => new Date(a.Date) - new Date(b.Date));
+
+        if(logs.length === 0) return;
+
+        // A. Season
+        const sStats = getHitRate(logs, stat, line);
+        document.getElementById('seasonRate').innerText = sStats.rate;
+        document.getElementById('seasonAvg').innerText = `Avg: ${sStats.avg}`;
+
+        // B. Last 10 Form
+        const l10Stats = getHitRate(logs.slice(-10), stat, line);
+        document.getElementById('l10Rate').innerText = l10Stats.rate;
+        document.getElementById('l10Avg').innerText = `Avg: ${l10Stats.avg}`;
+
+        // C. Context L10 (Last 10 @ Selected Location)
+        const locLogs = logs.filter(r => r.Loc === loc);
+        const l10LocStats = getHitRate(locLogs.slice(-10), stat, line);
+        document.getElementById('locLabel').innerText = `L10 @ ${loc.toUpperCase()}`;
+        document.getElementById('locRate').innerText = l10LocStats.rate;
+        document.getElementById('locAvg').innerText = `Avg: ${l10LocStats.avg}`;
+
+        // D. Vs Opponent
+        let h2hLogs = [];
+        if (oppId !== "ALL") {
+            h2hLogs = logs.filter(r => r.Opp_ID == oppId);
+        }
+        const h2hStats = getHitRate(h2hLogs, stat, line);
+        document.getElementById('oppLabel').innerText = `VS ${oppName}`;
+        document.getElementById('oppRate').innerText = h2hStats.rate;
+        document.getElementById('oppCount').innerText = `${h2hStats.count} Games`;
+
+        // E. Exact Spot (Opponent + Location)
+        const comboLogs = h2hLogs.filter(r => r.Loc === loc);
+        const comboStats = getHitRate(comboLogs, stat, line);
+        document.getElementById('comboLabel').innerText = `VS ${oppName} @ ${loc.toUpperCase()}`;
+        document.getElementById('comboRate').innerText = comboStats.rate;
+        document.getElementById('comboCount').innerText = `${comboStats.count} Games`;
+
+        // F. Visuals
+        renderChart(logs, stat, line);
+        renderTable(logs, stat, line);
+    }
+
+    // 3. Charting
+    function renderChart(logs, stat, line) {
+        const ctx = document.getElementById('trendChart').getContext('2d');
+        
+        // 1. Calculate 5-Game Moving Average on FULL dataset (to prevent start-ramp issues)
+        const fullRaw = logs.map(r => r[stat] || 0);
+        const fullSmooth = fullRaw.map((val, i, arr) => {
+            let start = Math.max(0, i - 4);
+            let subset = arr.slice(start, i + 1);
+            return subset.reduce((a,b) => a + b, 0) / subset.length;
+        });
+
+        // 2. Slice Last 25 Games for Display
+        const recentRaw = fullRaw.slice(-25);
+        const recentSmooth = fullSmooth.slice(-25);
+        const labels = logs.slice(-25).map(r => r.Date.substring(5)); // MM-DD
+
+        const threshLine = new Array(recentRaw.length).fill(line);
+
+        if(chartInstance) chartInstance.destroy();
+
+        chartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Trend (5G Avg)',
+                        data: recentSmooth,
+                        borderColor: '#00d2be',
+                        backgroundColor: 'rgba(0, 210, 190, 0.05)',
+                        borderWidth: 3,
+                        tension: 0.4, // Smooth curve
+                        pointRadius: 0,
+                        fill: true
+                    },
+                    {
+                        label: 'Threshold',
+                        data: threshLine,
+                        borderColor: '#ff5252',
+                        borderWidth: 2,
+                        borderDash: [6, 4],
+                        pointRadius: 0,
+                        fill: false
+                    },
+                    {
+                        label: 'Actual',
+                        data: recentRaw,
+                        borderColor: '#444',
+                        backgroundColor: 'transparent',
+                        borderWidth: 0,
+                        pointRadius: 4,
+                        pointBackgroundColor: recentRaw.map(v => v > line ? '#00d2be' : '#ff5252'),
+                        showLine: false // Dots only
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { labels: { color: '#888' } },
+                    tooltip: { backgroundColor: '#333', titleColor: '#fff', bodyColor: '#ccc' }
+                },
+                scales: {
+                    y: { 
+                        grid: { color: '#333' }, 
+                        ticks: { color: '#888' },
+                        suggestedMin: Math.min(...recentRaw, line) - 5,
+                        suggestedMax: Math.max(...recentRaw, line) + 5
+                    },
+                    x: { grid: { display: false }, ticks: { color: '#888' } }
+                }
+            }
+        });
+    }
+
+    // 4. Table
+    function renderTable(logs, stat, line) {
+        const tbody = document.querySelector('#logTable tbody');
+        tbody.innerHTML = "";
+        
+        // Show Last 15 (Reverse)
+        const recent = [...logs].reverse().slice(0, 15);
+
+        recent.forEach(r => {
+            const val = r[stat] || 0;
+            const hit = val > line;
+            const css = hit ? 'hit' : 'miss';
+            const res = hit ? 'OVER' : 'UNDER';
+            
+            // Opponent Name Resolution
+            const oppName = NBA_TEAMS[r.Opp_ID] || r.Opp_ID || "-";
+            const locIcon = r.Loc === 'Home' ? 'vs' : '@';
+
+            const row = `
+                <tr>
+                    <td style="color:#888">${r.Date}</td>
+                    <td>${locIcon} ${oppName}</td>
+                    <td><span class="loc-tag">${r.Loc}</span></td>
+                    <td>${r.MIN}</td>
+                    <td style="font-weight:bold; color:#fff">${val}</td>
+                    <td class="${css}">${res}</td>
+                </tr>
+            `;
+            tbody.innerHTML += row;
+        });
+    }
+</script>
+
+</body>
+</html>
