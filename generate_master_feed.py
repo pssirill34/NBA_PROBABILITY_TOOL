@@ -4,8 +4,15 @@ import time
 import os
 from datetime import date
 
+import os # Ensure this is imported
+
 # --- Configuration ---
-API_KEY = "ed6e8169-f265-44d6-8eb0-24b2a8512263"
+# This tells Python: "Look for a variable named API_KEY in the system environment"
+API_KEY = os.environ.get("API_KEY")
+
+# Safety check to ensure the key loaded
+if not API_KEY:
+    raise ValueError("API Key not found! Check GitHub Secrets.")
 BASE_URL = "https://api.balldontlie.io/v1"
 OUTPUT_FILE = "nba_game_logs_2024_25.csv"
 
@@ -211,4 +218,5 @@ def main():
 
 
 if __name__ == "__main__":
+
     main()
