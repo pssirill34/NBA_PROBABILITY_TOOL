@@ -167,17 +167,70 @@
         21: "OKC", 22: "ORL", 23: "PHI", 24: "PHX", 25: "POR", 26: "SAC", 27: "SAS", 28: "TOR", 29: "UTA", 30: "WAS"
     };
 
-    // 1. File Loader
-    document.getElementById('csvInput').addEventListener('change', (e) => {
-        Papa.parse(e.target.files[0], {
+// 1. Auto-Fetch Logic (Replaces Manual File Input)
+    // ============================================================
+    // TODO: Update these to match your GitHub details exactly
+    const GH_USER = "YOUR_GITHUB_USERNAME"; 
+    const GH_REPO = "YOUR_REPO_NAME";
+    // This filename must match the OUTPUT_FILE variable in 'build_nba_data_lake.py'
+    const CSV_FILE = "nba_game_logs_2024_25.csv"; 
+    // ============================================================
+
+    const CSV_URL = `https://raw.githubusercontent.com/${GH_USER}/${GH_REPO}/main/${CSV_FILE}`;
+
+    window.addEventListener('DOMContentLoaded', () => {
+        // Get UI references
+        const headerLabel = document.querySelector('.header div label');
+        const fileInput = document.getElementById('csvInput');
+
+        // A. Hide manual input initially so it looks like a web app
+        if(fileInput) fileInput.style.display = 'none';
+        if(headerLabel) headerLabel.innerHTML = "🔄 Syncing Data Lake...";
+
+        // B. Fetch Data from GitHub
+        Papa.parse(CSV_URL, {
+            download: true, // Tells PapaParse to fetch from URL
             header: true,
             dynamicTyping: true,
             skipEmptyLines: true,
             complete: (res) => {
-                rawData = res.data;
-                initApp();
+                if (res.data && res.data.length > 0) {
+                    // Success: Load data and start app
+                    rawData = res.data;
+                    if(headerLabel) {
+                        headerLabel.innerHTML = `✅ Data Live (${rawData.length} Games Loaded)`;
+                        headerLabel.style.color = "#00d2be";
+                        headerLabel.style.fontWeight = "bold";
+                    }
+                    initApp();
+                } else {
+                    console.error("CSV was empty");
+                    fallbackMode();
+                }
+            },
+            error: (err) => {
+                console.error("Fetch Error:", err);
+                fallbackMode();
             }
         });
+
+        // Safety Net: If auto-load fails (e.g. Github down), show the button again
+        function fallbackMode() {
+            if(headerLabel) {
+                headerLabel.innerText = "❌ Auto-Load Failed. Upload Manually:";
+                headerLabel.style.color = "#ff5252";
+            }
+            if(fileInput) {
+                fileInput.style.display = 'inline-block';
+                // Re-attach manual listener just in case
+                fileInput.addEventListener('change', (e) => {
+                    Papa.parse(e.target.files[0], {
+                        header: true, dynamicTyping: true, skipEmptyLines: true,
+                        complete: (res) => { rawData = res.data; initApp(); }
+                    });
+                });
+            }
+        }
     });
 
     function initApp() {
@@ -381,4 +434,5 @@
 </script>
 
 </body>
+
 </html>
